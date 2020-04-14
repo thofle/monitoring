@@ -39,7 +39,7 @@ class deliver
     {
         // gets public key for host_id
         // 
-        $publicKey = "key"
+        $publicKey = "key";
         return $publicKey;
     }
 

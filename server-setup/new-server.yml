@@ -1,0 +1,16 @@
+- hosts: monitoring_collectors
+  become: true
+  tasks:
+
+  - name: Add Percona Mongo repository
+    apt:
+      deb: https://repo.percona.com/apt/percona-release_latest.bionic_all.deb
+      state: present
+  
+  - name: Enable Percona Mongo 4.2 repository
+    command: "percona-release enable psmdb-42 release"
+
+  - name: Update repositories cache and install Percona Mongo
+    apt:
+      name: percona-server-mongodb
+      update_cache: yes
