@@ -1,9 +1,14 @@
 import sqlite3
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+
 from time import time
-import operator
+from socket import gethostname
+import urllib.request
+import urllib.parse
+
+import psutil
 
 class MonitorDatabase:
     def __init__(self, local_db_path = 'monitor.sqlite'):
@@ -47,36 +52,82 @@ class MonitorDatabase:
             return data[0], data[1]
         return None
 
-    def db_get_api_token(self):
+    def db_get_configuration_item(self, key):
         cursor = self.db_conn.cursor()
-        cursor.execute('SELECT value FROM configuration WHERE key = ?', ('api_token',))
-        return cursor.fetchone()[0]
+        cursor.execute('SELECT value FROM configuration WHERE key = ?', (key,))
+        data = cursor.fetchone()
+        if data is not None:
+            return data[0]
+        return None
+
+    def db_set_configuration_item(self, key, value):
+        cursor = self.db_conn.cursor()
+        cursor.execute('INSERT OR REPLACE INTO configuration(key, value) VALUES(?,?)', (key, value))
+        self.db_conn.commit()
 
     def __del__(self):
-        print('Disconnecting from database')
-        self.db_conn.close()
+        if hasattr(self, 'db_conn'):
+            print('Disconnecting from database')
+            self.db_conn.close()
 
 class Deliver(MonitorDatabase):
-    def upload_monitoring_data(self): 
-        api_token = self.db_get_api_token()
-        # if api_token is None, initiate process to get new token from server
-
-        monitoring_data = self.get_monitoring_data()
-        last_entry = max([x['timestamp'] for x in monitoring_data])
-        ## sign data
-
-        ## post data
-
-        if self.http_post_request() == True:
-            self.delete_monitoring_data(last_entry))
     
-    def http_post_request(self, destination, payload, signature):
-        result_code = 200
+    def __init__(self, api_base_url = 'https://monitor.aroonie.com/api/'):
+        super().__init__()
+        self.api_base_url = api_base_url
+        self.get_signing_key_pair()
+        self.get_api_token()
 
-        if result_code = 200:       # OK
+    def upload_monitoring_data(self): 
+        monitoring_data = self.get_monitoring_data()
+        monitoring_data_signature = self.sign_message(monitoring_data)
+
+
+        if self.http_post_request('deliver/', monitoring_data, monitoring_data_signature) == True:
+            # get last entry so we can delete data that has been uploaded
+            last_entry = max([x['timestamp'] for x in monitoring_data])
+            self.delete_monitoring_data(last_entry)
+
+
+    def get_api_token(self):
+        api_token = self.db_get_configuration_item('api_token')
+
+        if api_token == None:
+            api_token = self.get_new_api_token()
+            self.db_set_configuration_item('api_token', api_token)
+        
+        self.api_token = api_token
+    
+    def sign_message(self, message):
+        return self.private_signing_key.sign(
+            message,
+            padding.PSS(
+                mgf = padding.MGF1(hashes.SHA256()),
+                salt_length = padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+
+    def get_new_api_token(self):
+        url = self.api_base_url + 'register/host/' + gethostname()
+        params = urllib.parse.urlencode({'public_signing_key': self.public_signing_key}).encode('UTF8')
+        response = urllib.request.urlopen(url, params)
+        if response.getcode() == 200:
+            return response.read()
+        raise Exception(str(response.getcode())) 
+
+    def http_post_request(self, destination, payload, payload_signature):
+        url = self.api_base_url + destination
+        params = urllib.parse.urlencode({'payload': payload, 
+                'payload_signature': payload_signature, 
+                'api_token': self.api_token
+        }).encode('UTF8')
+
+        response = urllib.request.urlopen(url, params)
+        if response.getcode() == 200:       # OK
             return True
-        elif result_code = 498:     # Invalid token
-            return False
+        else:
+            raise Exception(str(response.getcode())) 
 
     def generate_key_pair(self):
         keys = rsa.generate_private_key(
@@ -88,8 +139,9 @@ class Deliver(MonitorDatabase):
         private_key = keys.private_bytes(
             encoding = serialization.Encoding.PEM,
             format = serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm = serialization.NoEncryption(),
+            encryption_algorithm = serialization.NoEncryption()
         )
+        
 
         public_key = keys.public_key().public_bytes(
             encoding = serialization.Encoding.PEM,
@@ -104,21 +156,131 @@ class Deliver(MonitorDatabase):
 
     def get_signing_key_pair(self):
         try:
-            self.private_signing_key, self.public_signing_key = self.db_get_keys('signing')
+            private_signing_key_pem, self.public_signing_key = self.db_get_keys('signing')
+            private_signing_key_pem = private_signing_key_pem.splitlines()
+            self.private_signing_key = serialization.load_pem_private_key(private_signing_key_pem, password=None, backend=default_backend(), )
         except TypeError:
             # Got this because no key existed in the database, try to recreate a new key.
             self.new_signing_key_pair()
-            self.private_signing_key, self.public_signing_key = self.db_get_keys('signing')
-
-        print(self.private_signing_key, self.public_signing_key)
+            private_signing_key_pem, self.public_signing_key = self.db_get_keys('signing')
+            self.private_signing_key = serialization.load_pem_private_key(private_signing_key_pem, password=None ,backend=default_backend())
 
 
 class Gather(MonitorDatabase):
-    def RegisterValue(self, value):
+    def __init__(self):
         pass
 
-        
+    def record_stats(self, stats = 'ALL'):
+        super().__init__()
+        pass
+
+    def get_stats(self, stats = 'ALL'):
+        result = {}
+        if stats == 'ALL':
+            result['cpu'] = self.get_cpu_measurement()
+            result['memory'] = self.get_memory_measurement()
+            result['disk'] = self.get_disk_measurement()
+            result['network'] = self.get_network_measurement()
+            result['process'] = self.get_process_measurements()
+        return result
+
+    def get_cpu_measurement(self):
+        return {
+            'percent_usage': psutil.cpu_percent(interval=0.5, percpu=True),
+            'logical_cores': psutil.cpu_count(logical=True),
+            'physical_cores': psutil.cpu_count(logical=False),
+            'measured_at': int(time()),
+            } 
+
+    def get_memory_measurement(self):
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        return {
+            'total': mem.total,
+            'available': mem.available,
+            'used': mem.used,
+            'free': mem.free,
+            'swap_total': swap.total,
+            'swap_used': swap.used,
+            'measured_at': int(time()),
+            } 
+
+    def get_disk_measurement(self):
+        disks = []
+        for partition in psutil.disk_partitions(all=False):
+            if partition.opts != 'removable':
+                size = psutil.disk_usage(partition.mountpoint)
+                disks.append({
+                    'device': partition.device,
+                    'mountpoint': partition.mountpoint,
+                    'fstype': partition.fstype,
+                    'size': size.total,
+                    'used': size.used,
+                    'measured_at': int(time())
+                })
+        return disks
+    
+    def get_network_measurement(self):
+        adapters = []
+        all_adapters = psutil.net_io_counters(pernic=True)
+        ips = psutil.net_if_addrs()
+        for adapter in all_adapters:
+            if 'loopback' not in adapter and adapter != 'lo':
+                adapters.append({
+                    'name': adapter,
+                    'addresses': ips[adapter],
+                    'bytes_sent': all_adapters[adapter].bytes_sent,
+                    'bytes_recv': all_adapters[adapter].bytes_recv,
+                    'measured_at': int(time())
+                })
+        return adapters
+
+    def get_process_measurements(self):
+        listening_processes = []
+        for con in psutil.net_connections():
+            if con.status == 'LISTEN':
+                listening_processes.append({
+                    'process': con.pid,
+                    'ip': con.laddr.ip,
+                    'port': con.laddr.port
+                })
+
+        processes = []
+        for pid in psutil.pids():
+            try:
+                p = psutil.Process(pid)
+                
+                with p.oneshot():
+                    name = 'restricted'
+                    executable = 'restricted'
+
+                    try:
+                        executable = p.exe()
+                    except psutil.AccessDenied:
+                        pass
+
+                    try:
+                        name = p.name()
+                    except psutil.AccessDenied:
+                        pass
+
+                    processes.append({
+                        'process': pid,
+                        'executable': executable,
+                        'name': name,
+                        
+                    })
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.AccessDenied:
+                pass
+        return {
+            'listening_processes': listening_processes,
+            'processes': processes,
+            'measured_at': int(time())
+        }
 
 if __name__ == '__main__':
-    stats = Deliver()
-    stats.get_signing_key_pair()
+    stats = Gather()
+    print(stats.get_stats()['process'])
+    pass
