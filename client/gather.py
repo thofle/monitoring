@@ -10,7 +10,7 @@ import urllib.parse
 
 import psutil
 
-class MonitorDatabase:
+class MonitorClientDatabase:
     def __init__(self, local_db_path = 'monitor.sqlite'):
         print('Connecting to database')
         self.db_conn = sqlite3.connect(local_db_path)
@@ -70,7 +70,7 @@ class MonitorDatabase:
             print('Disconnecting from database')
             self.db_conn.close()
 
-class Deliver(MonitorDatabase):
+class Deliver(MonitorClientDatabase):
     
     def __init__(self, api_base_url = 'https://monitor.aroonie.com/api/'):
         super().__init__()
@@ -109,8 +109,13 @@ class Deliver(MonitorDatabase):
         )
 
     def get_new_api_token(self):
-        url = self.api_base_url + 'register/host/' + gethostname()
-        params = urllib.parse.urlencode({'public_signing_key': self.public_signing_key}).encode('UTF8')
+        url = self.api_base_url + 'register/host/'        
+        params = urllib.parse.urlencode({
+            'public_signing_key': self.public_signing_key,
+            'hostname': gethostname(),
+            'signed_hostname': self.sign_message(gethostname())
+        }).encode('UTF8')
+        
         response = urllib.request.urlopen(url, params)
         if response.getcode() == 200:
             return response.read()
@@ -158,7 +163,7 @@ class Deliver(MonitorDatabase):
         try:
             private_signing_key_pem, self.public_signing_key = self.db_get_keys('signing')
             private_signing_key_pem = private_signing_key_pem.splitlines()
-            self.private_signing_key = serialization.load_pem_private_key(private_signing_key_pem, password=None, backend=default_backend(), )
+            self.private_signing_key = serialization.load_pem_private_key(private_signing_key_pem, password=None, backend=default_backend())
         except TypeError:
             # Got this because no key existed in the database, try to recreate a new key.
             self.new_signing_key_pair()
@@ -166,7 +171,7 @@ class Deliver(MonitorDatabase):
             self.private_signing_key = serialization.load_pem_private_key(private_signing_key_pem, password=None ,backend=default_backend())
 
 
-class Gather(MonitorDatabase):
+class Gather(MonitorClientDatabase):
     def __init__(self):
         pass
 
