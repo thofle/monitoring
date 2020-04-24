@@ -9,8 +9,6 @@ def pem_to_key(pem):
 
 def validate_signature(message, signature, public_signing_key_pem):
     public_key = pem_to_key(public_signing_key_pem)
-    print(public_key)
-    print(signature)
     try: 
         result = public_key.verify(
             b64decode(signature),
