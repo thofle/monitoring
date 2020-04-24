@@ -4,10 +4,15 @@ from flask import Flask, request, abort
 
 app = Flask(__name__)
 
+def get_client_ip():
+    if 'X-Real-IP' in request.headers:
+        return request.headers.get('X-Real-IP')
+    else:
+        return request.remote_addr or 'untracable'
 
 @app.route('/v1/register/client', methods=['POST'])
 def register_client():
-    ms = MServer(client_ip=request.remote_addr)
+    ms = MServer(client_ip=get_client_ip())
     if not all(k in request.form.keys() for k in('hostname','hostname_signature','public_signing_key')):
         abort(406)
 
@@ -24,7 +29,7 @@ def register_client():
 
 @app.route('/v1/deliver/measurement', methods=['POST'])
 def deliver_measurement():
-    ms = MServer(client_ip=request.remote_addr)
+    ms = MServer(client_ip=get_client_ip())
     if not all(k in request.form.keys() for k in('api_key','measurement','measurement_signature')):
         abort(406)
 
