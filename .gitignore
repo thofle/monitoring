@@ -3,3 +3,4 @@ config.php
 *.sqlite-journal
 .vscode/*
 *.pyc
+config.py
