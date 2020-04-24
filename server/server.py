@@ -35,7 +35,7 @@ def deliver_measurement():
     parent_id, public_signing_key = ms.get_parent_id_and_psk(api_key)
     if parent_id is None:
         ms.log_message('Invalid api key')
-        abort(498)
+        abort(428)
 
     if validate_signature(measurement, measurement_signature, public_signing_key) == False:
         ms.log_message('Invalid signature')
