@@ -14,11 +14,11 @@ class Gather():
         if 'MEMORY' in stats:
             result['memory'] = self.get_memory_measurement()
         if 'DISK' in stats:
-            result['disk'] = self.get_memory_measurement()
+            result['disk'] = self.get_disk_measurement()
         if 'NETWORK' in stats:
-            result['network'] = self.get_memory_measurement()
+            result['network'] = self.get_network_measurement()
         if 'PROCESS' in stats:
-            result['process'] = self.get_memory_measurement()
+            result['process'] = self.get_process_measurements()
 
         
         if len(result) == 0:
