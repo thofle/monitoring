@@ -1,10 +1,17 @@
 from pymongo import MongoClient
 from datetime import datetime
 from socket import gethostname
+from config import config
 
 class ServerDatabase:
-    def __init__(self, host='127.0.0.1', port=27017, username='', password='', authentication_database=''):
-        self.dbconn = MongoClient(host=host, port=port, username=username, password=password, authSource=authentication_database)
+    def __init__(self):
+        self.dbconn = MongoClient(
+            host=config.MONGO_HOSTNAME, 
+            port=config.MONGO_PORT, 
+            username=config.MONGO_USERNAME, 
+            password=config.MONGO_PASSWORD, 
+            authSource=config.MONGO_AUTH_DB
+        )
 
     def log_message(self, message, client_ip=None, source_method=None):
         self.dbconn.monitor.log_messages.insert_one({
